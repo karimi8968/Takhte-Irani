@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 // دریافت اطلاعات از Environment Variables
 const BOT_TOKEN = process.env.BOT_TOKEN;
 // استفاده از فایلی که الان آپلود کردیم
-const serviceAccount = require('../firebase-key.json'); 
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 if (!admin.apps.length) {
   admin.initializeApp({
