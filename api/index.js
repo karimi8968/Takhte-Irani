@@ -3,7 +3,6 @@ const admin = require('firebase-admin');
 
 // دریافت اطلاعات از Environment Variables
 const BOT_TOKEN = process.env.BOT_TOKEN;
-// استفاده از فایلی که الان آپلود کردیم
 const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 if (!admin.apps.length) {
@@ -16,23 +15,33 @@ if (!admin.apps.length) {
 const db = admin.database();
 const bot = new Telegraf(BOT_TOKEN);
 
+// تابع تولید کد تصادفی ۴ رقمی
+function generateCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
 // --- منطق ربات ---
 bot.start(async (ctx) => {
-    const payload = ctx.startPayload;
+    const user = ctx.from;
+    const code = generateCode();
     
-    if (payload && payload.startsWith('auth_')) {
-        const user = ctx.from;
-        // ذخیره در فایربیس
-        await db.ref(`temp_logins/${payload}`).set({
-            id: user.id,
-            first_name: user.first_name,
-            username: user.username || '',
-            timestamp: Date.now()
-        });
-        await ctx.reply(`✅ ${user.first_name} عزیز، ورود تایید شد!`);
-    } else {
-        await ctx.reply('لطفا از طریق دکمه داخل سایت اقدام کنید.');
-    }
+    // محاسبه زمان انقضا: زمان فعلی + ۵ دقیقه (۳۰۰,۰۰۰ میلی‌ثانیه)
+    const expiresAt = Date.now() + (5 * 60 * 1000); 
+
+    // ذخیره کد در فایربیس
+    // ساختار: auth_codes -> [CODE] -> { اطلاعات کاربر + زمان انقضا }
+    await db.ref(`auth_codes/${code}`).set({
+        telegram_id: user.id,
+        first_name: user.first_name,
+        username: user.username || '',
+        expires_at: expiresAt
+    });
+
+    // ارسال کد به کاربر (با فرمت کپی‌برداری راحت)
+    await ctx.reply(
+        `🔐 کد ورود شما: \`${code}\`\n\n⏳ این کد تا ۵ دقیقه اعتبار دارد.`, 
+        { parse_mode: 'Markdown' }
+    );
 });
 
 // --- وب‌هوک برای ورسل ---
@@ -42,7 +51,7 @@ module.exports = async (req, res) => {
             await bot.handleUpdate(req.body);
             res.status(200).json({ ok: true });
         } else {
-            res.status(200).send('Bot is Active!');
+            res.status(200).send('Bot is Active & Logic Updated!');
         }
     } catch (e) {
         console.error(e);
