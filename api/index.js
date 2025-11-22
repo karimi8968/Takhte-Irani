@@ -34,12 +34,14 @@ async function clearExpiredCodes() {
 
         snapshot.forEach((child) => {
             const data = child.val();
+            // اگر زمان انقضا گذشته است، آن را لیست کن
             if (data.expires_at && data.expires_at < now) {
                 updates[child.key] = null; 
                 hasExpired = true;
             }
         });
 
+        // حذف یکجای همه کدهای باطل شده
         if (hasExpired) {
             await ref.update(updates);
             console.log('Expired codes cleaned up.');
@@ -49,30 +51,30 @@ async function clearExpiredCodes() {
     }
 }
 
-// --- سیستم ارسال نوتیفیکیشن تلگرامی ---
-// این بخش دیتابیس را گوش می‌دهد تا اگر درخواستی ثبت شد، پیام بفرستد
+// --- سیستم ارسال نوتیفیکیشن تلگرامی (اصلاح شده) ---
 db.ref('pending_notifications').on('child_added', async (snapshot) => {
     const notification = snapshot.val();
     const key = snapshot.key;
 
     if (notification && notification.target_id && notification.message) {
         try {
-            // ارسال پیام به تلگرام کاربر
+            // ارسال پیام
             await bot.telegram.sendMessage(
                 notification.target_id, 
                 `🎮 *درخواست بازی جدید*\n\n${notification.message}\n\n👇 همین الان وارد بازی شو!`, 
                 { parse_mode: 'Markdown' }
             );
+            console.log(`Notification sent to ${notification.target_id}`);
             
-            // حذف درخواست از صف پس از ارسال موفق
+            // حذف بلافاصله پس از ارسال موفق
             await db.ref(`pending_notifications/${key}`).remove();
         } catch (error) {
             console.error(`Failed to send message to ${notification.target_id}:`, error);
-            // در صورت خطا هم حذف میکنیم تا لوپ ایجاد نشود (مثلا اگر کاربر ربات را بلاک کرده باشد)
+            // در صورت خطا (مثلاً بلاک بودن ربات) هم حذف میکنیم تا سرور درگیر لوپ نشود
             await db.ref(`pending_notifications/${key}`).remove();
         }
     } else {
-        // اگر دیتا ناقص بود حذف کن
+        // داده ناقص را حذف کن
         if (key) await db.ref(`pending_notifications/${key}`).remove();
     }
 });
@@ -80,6 +82,7 @@ db.ref('pending_notifications').on('child_added', async (snapshot) => {
 // --- منطق ربات ---
 bot.start(async (ctx) => {
     const user = ctx.from;
+    
     clearExpiredCodes(); 
 
     const code = generateCode();
