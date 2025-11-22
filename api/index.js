@@ -20,7 +20,7 @@ function generateCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
-// --- تابع پاکسازی کدهای منقضی شده (ضروری برای تمیز ماندن دیتابیس) ---
+// --- تابع پاکسازی کدهای منقضی شده ---
 async function clearExpiredCodes() {
     try {
         const ref = db.ref('auth_codes');
@@ -34,14 +34,12 @@ async function clearExpiredCodes() {
 
         snapshot.forEach((child) => {
             const data = child.val();
-            // اگر زمان انقضا گذشته است، آن را لیست کن
             if (data.expires_at && data.expires_at < now) {
                 updates[child.key] = null; 
                 hasExpired = true;
             }
         });
 
-        // حذف یکجای همه کدهای باطل شده
         if (hasExpired) {
             await ref.update(updates);
             console.log('Expired codes cleaned up.');
@@ -51,16 +49,31 @@ async function clearExpiredCodes() {
     }
 }
 
+// --- سیستم شنود درخواست‌های بازی برای ارسال پیام تلگرامی ---
+// این بخش چک میکند اگر رکوردی به pending_notifications اضافه شد، به کاربر تلگرام پیام دهد
+db.ref('pending_notifications').on('child_added', async (snapshot) => {
+    const notification = snapshot.val();
+    const key = snapshot.key;
+
+    if (notification && notification.target_id && notification.message) {
+        try {
+            await bot.telegram.sendMessage(notification.target_id, `🎮 *درخواست بازی جدید*\n\n${notification.message}\n\n👇 همین الان وارد بازی شو!`, { parse_mode: 'Markdown' });
+            // حذف نوتیفیکیشن بعد از ارسال موفق
+            await db.ref(`pending_notifications/${key}`).remove();
+        } catch (error) {
+            console.error(`Failed to send message to ${notification.target_id}:`, error);
+            // اگر کاربر ربات را بلاک کرده باشد یا خطا رخ دهد، رکورد را حذف میکنیم تا لوپ نشود
+            await db.ref(`pending_notifications/${key}`).remove();
+        }
+    }
+});
+
 // --- منطق ربات ---
 bot.start(async (ctx) => {
     const user = ctx.from;
-    
-    // پاکسازی کدهای قدیمی قبل از تولید کد جدید
     clearExpiredCodes(); 
 
     const code = generateCode();
-    
-    // اعتبار ۵ دقیقه
     const expiresAt = Date.now() + (5 * 60 * 1000); 
 
     await db.ref(`auth_codes/${code}`).set({
@@ -83,7 +96,7 @@ module.exports = async (req, res) => {
             await bot.handleUpdate(req.body);
             res.status(200).json({ ok: true });
         } else {
-            res.status(200).send('Bot is Active & Auto-Cleanup Enabled!');
+            res.status(200).send('Bot is Active & Notification System Running!');
         }
     } catch (e) {
         console.error(e);
