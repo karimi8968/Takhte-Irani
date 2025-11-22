@@ -49,22 +49,31 @@ async function clearExpiredCodes() {
     }
 }
 
-// --- سیستم شنود درخواست‌های بازی برای ارسال پیام تلگرامی ---
-// این بخش چک میکند اگر رکوردی به pending_notifications اضافه شد، به کاربر تلگرام پیام دهد
+// --- سیستم ارسال نوتیفیکیشن تلگرامی ---
+// این بخش دیتابیس را گوش می‌دهد تا اگر درخواستی ثبت شد، پیام بفرستد
 db.ref('pending_notifications').on('child_added', async (snapshot) => {
     const notification = snapshot.val();
     const key = snapshot.key;
 
     if (notification && notification.target_id && notification.message) {
         try {
-            await bot.telegram.sendMessage(notification.target_id, `🎮 *درخواست بازی جدید*\n\n${notification.message}\n\n👇 همین الان وارد بازی شو!`, { parse_mode: 'Markdown' });
-            // حذف نوتیفیکیشن بعد از ارسال موفق
+            // ارسال پیام به تلگرام کاربر
+            await bot.telegram.sendMessage(
+                notification.target_id, 
+                `🎮 *درخواست بازی جدید*\n\n${notification.message}\n\n👇 همین الان وارد بازی شو!`, 
+                { parse_mode: 'Markdown' }
+            );
+            
+            // حذف درخواست از صف پس از ارسال موفق
             await db.ref(`pending_notifications/${key}`).remove();
         } catch (error) {
             console.error(`Failed to send message to ${notification.target_id}:`, error);
-            // اگر کاربر ربات را بلاک کرده باشد یا خطا رخ دهد، رکورد را حذف میکنیم تا لوپ نشود
+            // در صورت خطا هم حذف میکنیم تا لوپ ایجاد نشود (مثلا اگر کاربر ربات را بلاک کرده باشد)
             await db.ref(`pending_notifications/${key}`).remove();
         }
+    } else {
+        // اگر دیتا ناقص بود حذف کن
+        if (key) await db.ref(`pending_notifications/${key}`).remove();
     }
 });
 
@@ -84,7 +93,7 @@ bot.start(async (ctx) => {
     });
 
     await ctx.reply(
-        `🔐 کد ورود شما: \`${code}\`\n\n⏳ این کد تا ۵ دقیقه اعتبار دارد.`, 
+        `🔐 کد ورود شما: \`${code}\`\n\n⏳ این کد تا ۵ دقیقه اعتبار دارد.\n\n✅ حالا به بازی برگردید و کد را وارد کنید.`, 
         { parse_mode: 'Markdown' }
     );
 });
