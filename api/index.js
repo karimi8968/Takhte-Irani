@@ -34,14 +34,13 @@ async function clearExpiredCodes() {
 
         snapshot.forEach((child) => {
             const data = child.val();
-            // اگر زمان انقضا گذشته است، آن را لیست کن
+            // اگر زمان انقضا گذشته است
             if (data.expires_at && data.expires_at < now) {
                 updates[child.key] = null; 
                 hasExpired = true;
             }
         });
 
-        // حذف یکجای همه کدهای باطل شده
         if (hasExpired) {
             await ref.update(updates);
             console.log('Expired codes cleaned up.');
@@ -51,30 +50,33 @@ async function clearExpiredCodes() {
     }
 }
 
-// --- سیستم ارسال نوتیفیکیشن تلگرامی (اصلاح شده) ---
+// --- سیستم ارسال نوتیفیکیشن تلگرامی (اصلاح شده برای ارسال آنی) ---
+// استفاده از child_added باعث می‌شود به محض درج داده جدید، فانکشن اجرا شود
 db.ref('pending_notifications').on('child_added', async (snapshot) => {
     const notification = snapshot.val();
     const key = snapshot.key;
 
+    // بررسی اعتبار داده‌ها
     if (notification && notification.target_id && notification.message) {
         try {
-            // ارسال پیام
+            // تلاش برای ارسال پیام
             await bot.telegram.sendMessage(
                 notification.target_id, 
                 `🎮 *درخواست بازی جدید*\n\n${notification.message}\n\n👇 همین الان وارد بازی شو!`, 
                 { parse_mode: 'Markdown' }
             );
-            console.log(`Notification sent to ${notification.target_id}`);
+            console.log(`Notification sent immediately to ${notification.target_id}`);
             
-            // حذف بلافاصله پس از ارسال موفق
+            // حذف بلافاصله پس از ارسال موفق برای جلوگیری از ارسال تکراری
             await db.ref(`pending_notifications/${key}`).remove();
         } catch (error) {
-            console.error(`Failed to send message to ${notification.target_id}:`, error);
-            // در صورت خطا (مثلاً بلاک بودن ربات) هم حذف میکنیم تا سرور درگیر لوپ نشود
+            console.error(`Failed to send message to ${notification.target_id}:`, error.message);
+            // در صورت بروز هرگونه خطا (بلاک بودن، خطای سرور و...) باز هم حذف می‌کنیم
+            // تا دیتابیس درگیر لوپ نشود و صف خالی شود
             await db.ref(`pending_notifications/${key}`).remove();
         }
     } else {
-        // داده ناقص را حذف کن
+        // اگر داده ناقص بود هم حذف کن تا فضا اشغال نکند
         if (key) await db.ref(`pending_notifications/${key}`).remove();
     }
 });
@@ -83,11 +85,13 @@ db.ref('pending_notifications').on('child_added', async (snapshot) => {
 bot.start(async (ctx) => {
     const user = ctx.from;
     
+    // پاکسازی کدهای قدیمی هنگام استارت هر کاربر
     clearExpiredCodes(); 
 
     const code = generateCode();
-    const expiresAt = Date.now() + (5 * 60 * 1000); 
+    const expiresAt = Date.now() + (5 * 60 * 1000); // ۵ دقیقه اعتبار
 
+    // ذخیره کد جدید در دیتابیس
     await db.ref(`auth_codes/${code}`).set({
         telegram_id: user.id,
         first_name: user.first_name,
@@ -101,17 +105,18 @@ bot.start(async (ctx) => {
     );
 });
 
-// --- وب‌هوک ---
+// --- هندلر وب‌هوک و keep-alive ---
 module.exports = async (req, res) => {
     try {
         if (req.method === 'POST') {
             await bot.handleUpdate(req.body);
             res.status(200).json({ ok: true });
         } else {
-            res.status(200).send('Bot is Active & Notification System Running!');
+            // پاسخ به پینگ‌ها برای زنده نگه داشتن سرور
+            res.status(200).send('Bot Service is Running & Listening for Games...');
         }
     } catch (e) {
-        console.error(e);
+        console.error('Webhook Error:', e);
         res.status(500).send('Error processing update');
     }
 };
